@@ -1,0 +1,115 @@
+#include <Arduino.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+
+const int optocouplerPin = 26;   // Pin where the optocoupler signal is connected
+const int yellowLedPin = 12;      // Pin for the yellow LED
+const int greenLedPin = 13;       // Pin for the green LED
+const int redLedPin = 14;         // Pin for the red LED
+
+#define TFT_CS   5
+#define TFT_RST  15
+#define TFT_DC   32
+#define TFT_MOSI 23
+#define TFT_SCLK 18
+
+const float wheelCircumference = 0.164;  // Wheel circumference in meters
+const int pulsesPerRotation = 20;      // Number of pulses per wheel rotation
+
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
+
+volatile unsigned long pulseCount = 0;
+unsigned long lastTime = 0;
+
+void IRAM_ATTR handleInterrupt() {
+  static unsigned long lastInterruptTime = 0;
+  unsigned long interruptTime = millis();
+
+  // Debounce to prevent multiple interrupts for a single rotation
+  if (interruptTime - lastInterruptTime > 10) {
+    pulseCount++;
+    lastInterruptTime = interruptTime;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(optocouplerPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(optocouplerPin), handleInterrupt, FALLING);
+
+  pinMode(yellowLedPin, OUTPUT);
+  pinMode(greenLedPin, OUTPUT);
+  pinMode(redLedPin, OUTPUT);
+
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(3);
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - lastTime;
+
+  if (elapsedTime >= 700) {
+    detachInterrupt(digitalPinToInterrupt(optocouplerPin));
+
+    int speed = calculateSpeed();
+    displaySpeed(speed);
+    controlLEDs(speed);
+
+    pulseCount = 0;
+    lastTime = currentTime;
+
+    attachInterrupt(digitalPinToInterrupt(optocouplerPin), handleInterrupt, FALLING);
+  }
+}
+
+int calculateSpeed() {
+  int distance = pulseCount * wheelCircumference;
+  int timeInSeconds = 1.0;  // Set the time interval for speed calculation
+  int speed = (distance / 1000.0) / (timeInSeconds / 3600.0);  // Convert to km/h
+  return speed;
+}
+
+void controlLEDs(int speed) {
+  digitalWrite(yellowLedPin, LOW);
+  digitalWrite(greenLedPin, LOW);
+  digitalWrite(redLedPin, LOW);
+
+  if (speed < 50) {
+    digitalWrite(yellowLedPin, HIGH);
+    Serial.println("yellow");
+  } else if (speed >=50 && speed < 90) {
+    digitalWrite(yellowLedPin, HIGH);
+    Serial.println("yellow");
+    digitalWrite(greenLedPin, HIGH);
+    Serial.println("green");
+  } else if (speed >= 90 && speed <= 120) {
+    digitalWrite(yellowLedPin, HIGH);
+    Serial.println("yellow");
+    digitalWrite(greenLedPin, HIGH);
+  Serial.println("green");
+    digitalWrite(redLedPin, HIGH);
+    Serial.println("red");
+  }
+}
+
+void displaySpeed(int speed) {
+  tft.fillScreen(ST7735_BLACK);
+
+  // Display speed in white color
+  tft.setCursor(40, 20);
+  tft.setTextColor(ST7735_WHITE);
+  tft.setTextSize(6);
+  tft.print(speed);
+
+  // Display "km/h" in yellow color
+  tft.setCursor(40, 80);
+  tft.setTextColor(ST7735_YELLOW);
+  tft.setTextSize(3);
+  tft.print("km/h");
+
+  Serial.print("Speed: ");
+  Serial.print(speed);
+  Serial.println(" km/h");
+}
